@@ -21,8 +21,6 @@ type serverContext struct {
 }
 
 func startServer(ctx *serverContext) {
-
-	log.Printf("Starting as a server")
 	log.Printf("Listening at port %v", ctx.app.Port)
 
 	var lnr, err = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%v", ctx.app.Port))
@@ -92,6 +90,8 @@ func runServerLoop(ctx *serverContext) {
 }
 
 func RunServer(appCtx *common.AppContext) {
+	log.Printf("Starting as a server")
+
 	ctx := serverContext{app: appCtx, sesss: make(map[uuid.UUID]*clientSession)}
 
 	startServer(&ctx)

@@ -6,21 +6,33 @@ import (
 	"fmt"
 	"log"
 	"net"
+
+	"github.com/google/shlex"
+	"github.com/google/uuid"
 )
 
-func RunClient(ctx *common.AppContext) {
-	log.Printf("Starting as a client")
-	log.Printf("Connecting to: %v:%v", ctx.Addr, ctx.Port)
+type clientContext struct {
+	app *common.AppContext
 
-	conn, err := net.Dial("tcp", fmt.Sprintf("%v:%v", ctx.Addr, ctx.Port))
+	conn net.Conn
+
+	id uuid.UUID
+}
+
+func startClient(ctx *clientContext) {
+	log.Printf("Connecting to: %v:%v", ctx.app.Addr, ctx.app.Port)
+
+	var err error
+
+	ctx.conn, err = net.Dial("tcp", fmt.Sprintf("%v:%v", ctx.app.Addr, ctx.app.Port))
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Printf("Connected to: %v", conn.RemoteAddr())
+	log.Printf("Connected to: %v", ctx.conn.RemoteAddr())
 
-	msg, err := common.RecieveMessage(conn)
+	msg, err := common.RecieveMessage(ctx.conn)
 
 	if err != nil {
 		log.Fatal(err)
@@ -35,9 +47,52 @@ func RunClient(ctx *common.AppContext) {
 
 	log.Printf("Received session id: %v", invite.SessId)
 
-	common.SendMessage(conn, ([]byte)("message 1"))
-	common.SendMessage(conn, ([]byte)("message 2"))
-	common.SendMessage(conn, ([]byte)("message 3"))
+	ctx.id, err = uuid.Parse(invite.SessId)
 
-	conn.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func runCliLoop(ctx *clientContext) {
+	for {
+		var line string
+
+		fmt.Printf("> ")
+		fmt.Scanln(&line)
+
+		args, err := shlex.Split(line)
+
+		if err != nil {
+			log.Printf("Failed to parse command line: %v\n", err)
+			continue
+		}
+
+		if len(args) == 0 {
+			continue
+		}
+
+		if _, ok := common.DefinedCommands[args[0]]; !ok {
+			log.Printf("Issued command not defined command: %v\n", args[0])
+			continue
+		}
+
+		if args[0] == "exit" {
+			break
+		}
+
+		common.SendMessage(ctx.conn, []byte(line))
+	}
+}
+
+func RunClient(appCtx *common.AppContext) {
+	log.Printf("Starting as a client")
+
+	ctx := clientContext{app: appCtx}
+
+	startClient(&ctx)
+
+	runCliLoop(&ctx)
+
+	ctx.conn.Close()
 }
