@@ -73,7 +73,7 @@ func runCliLoop(ctx *clientContext) {
 		}
 
 		if _, ok := common.DefinedCommands[args[0]]; !ok {
-			log.Printf("Issued command not defined command: %v\n", args[0])
+			log.Printf("Issued a not defined command: %v\n", args[0])
 			continue
 		}
 
@@ -81,7 +81,11 @@ func runCliLoop(ctx *clientContext) {
 			break
 		}
 
-		common.SendMessage(ctx.conn, []byte(line))
+		err = common.SendMessage(ctx.conn, []byte(line))
+
+		if err != nil {
+			log.Fatalf("SendMessage failed. Error:\n%v", err)
+		}
 	}
 }
 

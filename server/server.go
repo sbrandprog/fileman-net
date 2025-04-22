@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -40,7 +41,7 @@ func newSession(ctx *serverContext, conn net.Conn) *clientSession {
 }
 
 func endSession(ctx *serverContext, client *clientSession) {
-	log.Printf("Closed connection with: %v", client.conn.RemoteAddr())
+	log.Printf("Closed connection with: %v", client.id)
 
 	delete(ctx.sesss, client.id)
 
@@ -52,9 +53,13 @@ func endSession(ctx *serverContext, client *clientSession) {
 }
 
 func serveClient(ctx *serverContext, client *clientSession) {
-	log.Printf("Accepted connection from: %v", client.conn.RemoteAddr())
+	log.Printf("Accepted connection from: %v, id: %v", client.conn.RemoteAddr(), client.id)
 
-	client.sendClientInvite()
+	err := client.sendClientInvite()
+
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	reader := bufio.NewReader(client.conn)
 
@@ -62,14 +67,34 @@ func serveClient(ctx *serverContext, client *clientSession) {
 		msg, err := reader.ReadBytes(0)
 
 		if err != nil {
+			var netOpErr *net.OpError
+
 			if errors.Is(err, io.EOF) {
+				break
+			} else if errors.As(err, &netOpErr) {
 				break
 			} else {
 				log.Fatal(err)
 			}
 		}
 
-		log.Printf("%v\n", string(msg[:len(msg)-1]))
+		line := string(msg[:len(msg)-1])
+
+		{
+			var escLineBuilder strings.Builder
+
+			for _, ch := range line {
+				if ch == '"' || ch == '\\' {
+					escLineBuilder.WriteRune('\\')
+				}
+
+				escLineBuilder.WriteRune(ch)
+			}
+
+			log.Printf("Received command: \"%v\" from %v", escLineBuilder.String(), client.id)
+		}
+
+		client.processClientCommand(line)
 	}
 
 	endSession(ctx, client)
