@@ -1,7 +1,6 @@
 package client
 
 import (
-	"bufio"
 	"encoding/json"
 	"filemannet/common"
 	"fmt"
@@ -21,22 +20,24 @@ func RunClient(ctx *common.AppContext) {
 
 	log.Printf("Connected to: %v", conn.RemoteAddr())
 
-	reader := bufio.NewReader(conn)
-
-	msg, err := reader.ReadBytes(0)
+	msg, err := common.RecieveMessage(conn)
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	var invite common.ClientInvite
-	err = json.Unmarshal(msg[:len(msg)-1], &invite)
+	var invite common.ClientInviteMessage
+	err = json.Unmarshal(msg, &invite)
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	log.Printf("Received session id: %v", invite.SessId)
+
+	common.SendMessage(conn, ([]byte)("message 1"))
+	common.SendMessage(conn, ([]byte)("message 2"))
+	common.SendMessage(conn, ([]byte)("message 3"))
 
 	conn.Close()
 }

@@ -15,8 +15,8 @@ type clientSession struct {
 	conn net.Conn
 }
 
-func (client *clientSession) sendClientInvite() {
-	invite := common.ClientInvite{SessId: client.id.String()}
+func (client *clientSession) sendClientInvite() error {
+	invite := common.ClientInviteMessage{SessId: client.id.String()}
 
 	msg, err := json.Marshal(invite)
 
@@ -24,12 +24,5 @@ func (client *clientSession) sendClientInvite() {
 		log.Fatal(err)
 	}
 
-	msg = append(msg, 0)
-
-	n, err := client.conn.Write(msg)
-	_ = n
-
-	if err != nil {
-		log.Fatal(err)
-	}
+	return common.SendMessage(client.conn, msg)
 }

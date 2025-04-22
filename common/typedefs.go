@@ -9,7 +9,3 @@ type AppContext struct {
 	Port uint
 	Addr string
 }
-
-type ClientInvite struct {
-	SessId string `json:"session_id"`
-}

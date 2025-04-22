@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bufio"
+	"errors"
 	"filemannet/common"
 	"fmt"
+	"io"
 	"log"
 	"net"
 
@@ -39,15 +42,37 @@ func newSession(ctx *serverContext, conn net.Conn) *clientSession {
 }
 
 func endSession(ctx *serverContext, client *clientSession) {
+	log.Printf("Closed connection with: %v", client.conn.RemoteAddr())
+
 	delete(ctx.sesss, client.id)
 
-	client.conn.Close()
+	err := client.conn.Close()
+
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func serveClient(ctx *serverContext, client *clientSession) {
 	log.Printf("Accepted connection from: %v", client.conn.RemoteAddr())
 
 	client.sendClientInvite()
+
+	reader := bufio.NewReader(client.conn)
+
+	for {
+		msg, err := reader.ReadBytes(0)
+
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			} else {
+				log.Fatal(err)
+			}
+		}
+
+		log.Printf("%v\n", string(msg[:len(msg)-1]))
+	}
 
 	endSession(ctx, client)
 }
