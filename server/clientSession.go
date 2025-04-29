@@ -5,6 +5,8 @@ import (
 	"errors"
 	"filemannet/common"
 	"fmt"
+	"io/fs"
+	"log"
 	"net"
 	"strings"
 
@@ -13,9 +15,13 @@ import (
 )
 
 type clientSession struct {
+	ctx *serverContext
+
 	id uuid.UUID
 
 	conn net.Conn
+
+	cwd string
 }
 
 func (client *clientSession) sendClientInvite() error {
@@ -30,15 +36,15 @@ func (client *clientSession) sendClientInvite() error {
 	return common.SendMessage(client.conn, msg)
 }
 
-func (client *clientSession) processClientCommand(line string) error {
+func (client *clientSession) processClientCommand(line string) {
 	args, err := shlex.Split(line)
 
 	if err != nil {
-		return errors.Join(errors.New("Failed to parse client command"), err)
+		log.Printf("Failed to parse client command, parse err: %v", err)
 	}
 
 	if _, ok := common.DefinedCommands[args[0]]; !ok {
-		return fmt.Errorf("Issued a not defined command: %v\n", args[0])
+		log.Printf("Issued a not defined command: %v\n", args[0])
 	}
 
 	var msgBuilder strings.Builder
@@ -46,15 +52,48 @@ func (client *clientSession) processClientCommand(line string) error {
 	switch args[0] {
 	case "ls":
 		{
-			msgBuilder.WriteString("Received a 'ls' command")
+			msgBuilder.WriteString(client.processFileCommandLs())
 		}
 	case "pwd":
 		{
-			msgBuilder.WriteString("Received a 'pwd' command")
+			msgBuilder.WriteString(client.processFileCommandPwd())
 		}
 	}
 
-	common.SendMessage(client.conn, []byte(msgBuilder.String()))
+	err = common.SendMessage(client.conn, []byte(msgBuilder.String()))
 
-	return err
+	if err != nil {
+		log.Printf("SendMessage error: %v", err)
+	}
+}
+
+func (client *clientSession) processFileCommandLs() string {
+	ents, err := fs.ReadDir(client.ctx.workingDir.FS(), client.cwd)
+
+	if err != nil {
+		return fmt.Sprintf("Failed to read directory elements")
+	}
+
+	var msgBuiler strings.Builder
+
+	for entInd, ent := range ents {
+		info, err := ent.Info()
+
+		if err != nil {
+			log.Printf("Failed to read data. Err: %v", err)
+			msgBuiler.WriteString("Failed to read data.\n")
+		} else {
+			msgBuiler.WriteString(fmt.Sprintf("%-14v %-10v", info.Mode(), info.Name()))
+
+			if entInd != len(ents)-1 {
+				msgBuiler.WriteRune('\n')
+			}
+		}
+	}
+
+	return msgBuiler.String()
+}
+
+func (client *clientSession) processFileCommandPwd() string {
+	return client.cwd
 }

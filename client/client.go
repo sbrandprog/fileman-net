@@ -2,8 +2,10 @@ package client
 
 import (
 	"encoding/json"
+	"errors"
 	"filemannet/common"
 	"fmt"
+	"io"
 	"log"
 	"net"
 
@@ -19,7 +21,11 @@ type clientContext struct {
 	id uuid.UUID
 }
 
-func startClient(ctx *clientContext) {
+func newClientContext(app *common.AppContext) clientContext {
+	return clientContext{app: app}
+}
+
+func (ctx *clientContext) startClient() {
 	log.Printf("Connecting to: %v:%v", ctx.app.Addr, ctx.app.Port)
 
 	var err error
@@ -54,7 +60,7 @@ func startClient(ctx *clientContext) {
 	}
 }
 
-func runCliLoop(ctx *clientContext) {
+func (ctx *clientContext) runCliLoop() {
 	for {
 		var line string
 
@@ -86,17 +92,29 @@ func runCliLoop(ctx *clientContext) {
 		if err != nil {
 			log.Fatalf("SendMessage failed. Error:\n%v", err)
 		}
+
+		msg, err := common.RecieveMessage(ctx.conn)
+
+		if errors.Is(err, io.EOF) {
+			log.Printf("Server closed connection")
+
+			break
+		} else if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Println(string(msg))
 	}
 }
 
-func RunClient(appCtx *common.AppContext) {
+func RunClient(app *common.AppContext) {
 	log.Printf("Starting as a client")
 
-	ctx := clientContext{app: appCtx}
+	ctx := newClientContext(app)
 
-	startClient(&ctx)
+	ctx.startClient()
 
-	runCliLoop(&ctx)
+	ctx.runCliLoop()
 
 	ctx.conn.Close()
 }

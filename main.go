@@ -10,9 +10,12 @@ import (
 func main() {
 	var ctx common.AppContext
 
+	flag.BoolVar(&ctx.RunAsServer, "server", common.DefaultRunAsServer, "run as server")
+
 	flag.UintVar(&ctx.Port, "port", common.DefaultPort, "port to connect")
 	flag.StringVar(&ctx.Addr, "address", common.DefaultAddr, "address to connect")
-	flag.BoolVar(&ctx.RunAsServer, "server", false, "run as server")
+
+	flag.StringVar(&ctx.ServerWorkingDir, "server-wd", common.DefaultServerPath, "server working dir")
 
 	flag.Parse()
 

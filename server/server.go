@@ -8,7 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
-	"strings"
+	"os"
 
 	"github.com/google/uuid"
 )
@@ -16,12 +16,26 @@ import (
 type serverContext struct {
 	app *common.AppContext
 
+	workingDir *os.Root
+
 	lnr net.Listener
 
 	sesss map[uuid.UUID]*clientSession
 }
 
-func startServer(ctx *serverContext) {
+func newServerContext(app *common.AppContext) serverContext {
+	workingDir, err := os.OpenRoot(app.ServerWorkingDir)
+
+	if err != nil {
+		log.Fatalf("Failed to open Root object: %v", err)
+	}
+
+	return serverContext{app: app, workingDir: workingDir, sesss: make(map[uuid.UUID]*clientSession)}
+}
+
+func (ctx *serverContext) startServer() {
+	log.Printf("Working directory: %v", ctx.app.ServerWorkingDir)
+
 	log.Printf("Listening at port %v", ctx.app.Port)
 
 	var lnr, err = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%v", ctx.app.Port))
@@ -32,15 +46,15 @@ func startServer(ctx *serverContext) {
 	}
 }
 
-func newSession(ctx *serverContext, conn net.Conn) *clientSession {
-	client := &clientSession{id: uuid.New(), conn: conn}
+func (ctx *serverContext) newSession(conn net.Conn) *clientSession {
+	client := &clientSession{ctx: ctx, id: uuid.New(), conn: conn, cwd: "."}
 
 	ctx.sesss[client.id] = client
 
 	return client
 }
 
-func endSession(ctx *serverContext, client *clientSession) {
+func (ctx *serverContext) endSession(client *clientSession) {
 	log.Printf("Closed connection with: %v", client.id)
 
 	delete(ctx.sesss, client.id)
@@ -52,7 +66,7 @@ func endSession(ctx *serverContext, client *clientSession) {
 	}
 }
 
-func serveClient(ctx *serverContext, client *clientSession) {
+func (ctx *serverContext) serveClient(client *clientSession) {
 	log.Printf("Accepted connection from: %v, id: %v", client.conn.RemoteAddr(), client.id)
 
 	err := client.sendClientInvite()
@@ -80,27 +94,15 @@ func serveClient(ctx *serverContext, client *clientSession) {
 
 		line := string(msg[:len(msg)-1])
 
-		{
-			var escLineBuilder strings.Builder
+		log.Printf("Received command: %q from %v", line, client.id)
 
-			for _, ch := range line {
-				if ch == '"' || ch == '\\' {
-					escLineBuilder.WriteRune('\\')
-				}
-
-				escLineBuilder.WriteRune(ch)
-			}
-
-			log.Printf("Received command: \"%v\" from %v", escLineBuilder.String(), client.id)
-		}
-
-		client.processClientCommand(line)
+		go client.processClientCommand(line)
 	}
 
-	endSession(ctx, client)
+	ctx.endSession(client)
 }
 
-func runServerLoop(ctx *serverContext) {
+func (ctx *serverContext) runServerLoop() {
 	for {
 		var conn, err = ctx.lnr.Accept()
 
@@ -108,18 +110,18 @@ func runServerLoop(ctx *serverContext) {
 			log.Fatal(err)
 		}
 
-		client := newSession(ctx, conn)
+		client := ctx.newSession(conn)
 
-		go serveClient(ctx, client)
+		go ctx.serveClient(client)
 	}
 }
 
-func RunServer(appCtx *common.AppContext) {
+func RunServer(app *common.AppContext) {
 	log.Printf("Starting as a server")
 
-	ctx := serverContext{app: appCtx, sesss: make(map[uuid.UUID]*clientSession)}
+	ctx := newServerContext(app)
 
-	startServer(&ctx)
+	ctx.startServer()
 
-	runServerLoop(&ctx)
+	ctx.runServerLoop()
 }
