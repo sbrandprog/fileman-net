@@ -37,8 +37,16 @@ type clientContext struct {
 
 	id uuid.UUID
 
-	historyLock sync.Mutex
-	history     []string
+	historyLock   sync.Mutex
+	history       []string
+	historyCursor int
+}
+
+type historyLimits struct {
+	historySize      int
+	historyBlockSize int
+
+	showSize int
 }
 
 func newClientContext(app *common.AppContext) *clientContext {
@@ -47,7 +55,21 @@ func newClientContext(app *common.AppContext) *clientContext {
 	input.Focus()
 	input.CharLimit = 120
 
-	return &clientContext{app: app, input: input, historyLock: sync.Mutex{}}
+	return &clientContext{
+		app:           app,
+		input:         input,
+		historyLock:   sync.Mutex{},
+		historyCursor: 0,
+	}
+}
+
+func (ctx *clientContext) computeHistoryLimitsNoLock() historyLimits {
+	historySize := len(ctx.history)
+	historyBlockSize := max(0, ctx.termHeight-1)
+
+	showSize := min(historyBlockSize, historySize)
+
+	return historyLimits{historySize: historySize, historyBlockSize: historyBlockSize, showSize: showSize}
 }
 
 func (ctx *clientContext) pushHistory(str string) {
@@ -63,6 +85,15 @@ func (ctx *clientContext) pushHistory(str string) {
 
 func (ctx *clientContext) pushHistoryFormat(format string, a ...any) {
 	ctx.pushHistory(fmt.Sprintf(format, a...))
+}
+
+func (ctx *clientContext) moveHistoryCursor(move int) {
+	ctx.historyLock.Lock()
+	defer ctx.historyLock.Unlock()
+
+	limits := ctx.computeHistoryLimitsNoLock()
+
+	ctx.historyCursor = max(0, min(limits.historySize-limits.showSize, ctx.historyCursor+move))
 }
 
 func (ctx *clientContext) initConnection() tea.Msg {
@@ -182,6 +213,12 @@ func (ctx *clientContext) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return ctx, ctx.processInputLine()
 		case tea.KeyCtrlD:
 			return ctx, tea.Quit
+		case tea.KeyDown:
+			ctx.moveHistoryCursor(-1)
+			return ctx, nil
+		case tea.KeyUp:
+			ctx.moveHistoryCursor(1)
+			return ctx, nil
 		}
 
 	case connCreated:
@@ -206,18 +243,20 @@ func (ctx *clientContext) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (ctx *clientContext) View() string {
 	ctx.historyLock.Lock()
+	defer ctx.historyLock.Unlock()
 
-	historySize := len(ctx.history)
-	padSize := min(max(0, historySize-ctx.termHeight+1), historySize)
+	limits := ctx.computeHistoryLimitsNoLock()
 
-	str := fmt.Sprintf("%s\n%s",
-		strings.Join(ctx.history[padSize:], "\n"),
+	linesStart := limits.historySize - limits.showSize - ctx.historyCursor
+	linesEnd := min(linesStart+limits.showSize, limits.historySize)
+
+	padSize := limits.historyBlockSize - limits.showSize
+
+	return fmt.Sprintf("%s\n%s%s",
+		strings.Join(ctx.history[linesStart:linesEnd], "\n"),
+		strings.Repeat("\n", padSize),
 		ctx.input.View(),
 	)
-
-	ctx.historyLock.Unlock()
-
-	return str
 }
 
 func RunClient(app *common.AppContext) {
