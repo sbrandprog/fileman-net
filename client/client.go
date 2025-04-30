@@ -6,115 +6,198 @@ import (
 	"filemannet/common"
 	"fmt"
 	"io"
-	"log"
 	"net"
+	"strings"
+	"sync"
 
 	"github.com/google/shlex"
 	"github.com/google/uuid"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 )
+
+const clientHistoryLen = 1000
+const clientCliPrompt = "> "
+
+type connClosed struct{}
+
+type receivedMessage struct {
+	msg string
+}
 
 type clientContext struct {
 	app *common.AppContext
 
+	input textinput.Model
+
+	termHeight int
+
 	conn net.Conn
 
 	id uuid.UUID
+
+	historyLock sync.Mutex
+	history     []string
 }
 
-func newClientContext(app *common.AppContext) clientContext {
-	return clientContext{app: app}
+func newClientContext(app *common.AppContext) *clientContext {
+	input := textinput.New()
+	input.Prompt = clientCliPrompt
+	input.Focus()
+	input.CharLimit = 120
+
+	return &clientContext{app: app, input: input, historyLock: sync.Mutex{}}
 }
 
-func (ctx *clientContext) startClient() {
-	log.Printf("Connecting to: %v:%v", ctx.app.Addr, ctx.app.Port)
+func (ctx *clientContext) pushHistory(str string) {
+	ctx.historyLock.Lock()
+	defer ctx.historyLock.Unlock()
+
+	for elem := range strings.SplitSeq(str, "\n") {
+		ctx.history = append(ctx.history, elem)[max(0, len(ctx.history)-clientHistoryLen):]
+	}
+}
+
+func (ctx *clientContext) processInputLine() tea.Cmd {
+	line := ctx.input.Value()
+	ctx.input.SetValue("")
+
+	ctx.pushHistory(clientCliPrompt + line)
+
+	args, err := shlex.Split(line)
+
+	if err != nil {
+		ctx.pushHistory(fmt.Sprintf("Failed to parse command line: %v", err))
+		return nil
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	if _, ok := common.DefinedCommands[args[0]]; !ok {
+		ctx.pushHistory(fmt.Sprintf("Unknowd command."))
+		return nil
+	}
+
+	if args[0] == "exit" {
+		return tea.Quit
+	}
+
+	err = common.SendMessage(ctx.conn, []byte(line))
+
+	if err != nil {
+		ctx.pushHistory(fmt.Sprintf("SendMessage failed. Error:%v", err))
+		return nil
+	}
+
+	return nil
+}
+
+func (ctx *clientContext) receiveMessage() tea.Msg {
+	msg, err := common.RecieveMessage(ctx.conn)
+
+	if errors.Is(err, io.EOF) {
+		return connClosed{}
+	} else if err != nil {
+		panic(err)
+	}
+
+	return receivedMessage{msg: string(msg)}
+}
+
+func (ctx *clientContext) Init() tea.Cmd {
+	ctx.pushHistory("Starting as a client")
+
+	ctx.pushHistory(fmt.Sprintf("Connecting to: %v:%v", ctx.app.Addr, ctx.app.Port))
 
 	var err error
 
 	ctx.conn, err = net.Dial("tcp", fmt.Sprintf("%v:%v", ctx.app.Addr, ctx.app.Port))
 
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
-	log.Printf("Connected to: %v", ctx.conn.RemoteAddr())
+	ctx.pushHistory("Connected.")
 
 	msg, err := common.RecieveMessage(ctx.conn)
 
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	var invite common.ClientInviteMessage
 	err = json.Unmarshal(msg, &invite)
 
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
-	log.Printf("Received session id: %v", invite.SessId)
+	ctx.pushHistory(fmt.Sprintf("Received session id: %v", invite.SessId))
 
 	ctx.id, err = uuid.Parse(invite.SessId)
 
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
+
+	return tea.Batch(textinput.Blink, ctx.receiveMessage)
 }
 
-func (ctx *clientContext) runCliLoop() {
-	for {
-		var line string
+func (ctx *clientContext) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
 
-		fmt.Printf("> ")
-		fmt.Scanln(&line)
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		ctx.termHeight = msg.Height
 
-		args, err := shlex.Split(line)
-
-		if err != nil {
-			log.Printf("Failed to parse command line: %v\n", err)
-			continue
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyEnter:
+			return ctx, ctx.processInputLine()
+		case tea.KeyCtrlD:
+			return ctx, tea.Quit
 		}
 
-		if len(args) == 0 {
-			continue
-		}
+	case connClosed:
+		ctx.pushHistory("Server closed connection")
+		return ctx, tea.Quit
 
-		if _, ok := common.DefinedCommands[args[0]]; !ok {
-			log.Printf("Issued a not defined command: %v\n", args[0])
-			continue
-		}
+	case receivedMessage:
+		ctx.pushHistory(msg.msg)
+		return ctx, ctx.receiveMessage
 
-		if args[0] == "exit" {
-			break
-		}
-
-		err = common.SendMessage(ctx.conn, []byte(line))
-
-		if err != nil {
-			log.Fatalf("SendMessage failed. Error:\n%v", err)
-		}
-
-		msg, err := common.RecieveMessage(ctx.conn)
-
-		if errors.Is(err, io.EOF) {
-			log.Printf("Server closed connection")
-
-			break
-		} else if err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Println(string(msg))
+	case error:
+		ctx.pushHistory(fmt.Sprintf("Cli loop error: %v", msg))
 	}
+
+	ctx.input, cmd = ctx.input.Update(msg)
+
+	return ctx, cmd
+}
+
+func (ctx *clientContext) View() string {
+	ctx.historyLock.Lock()
+
+	historySize := len(ctx.history)
+	padSize := min(max(0, historySize-ctx.termHeight+1), historySize)
+
+	str := fmt.Sprintf("%s\n%s",
+		strings.Join(ctx.history[padSize:], "\n"),
+		ctx.input.View(),
+	)
+
+	ctx.historyLock.Unlock()
+
+	return str
 }
 
 func RunClient(app *common.AppContext) {
-	log.Printf("Starting as a client")
+	prog := tea.NewProgram(newClientContext(app))
 
-	ctx := newClientContext(app)
-
-	ctx.startClient()
-
-	ctx.runCliLoop()
-
-	ctx.conn.Close()
+	if _, err := prog.Run(); err != nil {
+		panic(err)
+	}
 }
