@@ -44,7 +44,7 @@ func (client *clientSession) processClientCommand(line string) {
 		log.Printf("Failed to parse client command, parse err: %v", err)
 	}
 
-	if _, ok := common.DefinedCommands[args[0]]; !ok {
+	if !common.IsDefinedCommand(args[0]) {
 		log.Printf("Issued a not defined command: %v\n", args[0])
 	}
 
@@ -59,6 +59,8 @@ func (client *clientSession) processClientCommand(line string) {
 		{
 			msgBuilder.WriteString(client.processFileCommandPwd())
 		}
+	default:
+		panic(fmt.Sprintf("unexpected command: %v", args))
 	}
 
 	err = common.SendMessage(client.conn, []byte(msgBuilder.String()))
@@ -72,6 +74,7 @@ func (client *clientSession) processFileCommandLs() string {
 	ents, err := fs.ReadDir(client.ctx.workingDir.FS(), filepath.Join(".", client.cwd))
 
 	if err != nil {
+		log.Printf("Failed to read directory elements. Err: %v", err)
 		return fmt.Sprintf("Failed to read directory elements")
 	}
 

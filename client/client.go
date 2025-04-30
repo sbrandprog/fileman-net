@@ -104,6 +104,20 @@ func (ctx *clientContext) initConnection() tea.Msg {
 	return connCreated{}
 }
 
+func (ctx *clientContext) processClientCommand(args []string) tea.Cmd {
+	switch args[0] {
+	case "exit":
+		return tea.Quit
+
+	case "id":
+		ctx.pushHistory(ctx.id.String())
+		return nil
+
+	default:
+		panic(fmt.Sprintf("unexpected command: %v", args))
+	}
+}
+
 func (ctx *clientContext) processInputLine() tea.Cmd {
 	line := ctx.input.Value()
 	ctx.input.SetValue("")
@@ -121,13 +135,13 @@ func (ctx *clientContext) processInputLine() tea.Cmd {
 		return nil
 	}
 
-	if _, ok := common.DefinedCommands[args[0]]; !ok {
-		ctx.pushHistoryFormat("Unknown command.")
-		return nil
+	if common.IsDefinedClientCommand(args[0]) {
+		return ctx.processClientCommand(args)
 	}
 
-	if args[0] == "exit" {
-		return tea.Quit
+	if !common.IsDefinedCommand(args[0]) {
+		ctx.pushHistoryFormat("Unknown command.")
+		return nil
 	}
 
 	err = common.SendMessage(ctx.conn, []byte(line))
