@@ -207,6 +207,7 @@ func (ctx *clientContext) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		ctx.termHeight = msg.Height
+		ctx.moveHistoryCursor(0)
 
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -214,10 +215,20 @@ func (ctx *clientContext) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return ctx, ctx.processInputLine()
 		case tea.KeyCtrlD:
 			return ctx, tea.Quit
-		case tea.KeyDown:
+		case tea.KeyShiftDown:
 			ctx.moveHistoryCursor(-1)
 			return ctx, nil
-		case tea.KeyUp:
+		case tea.KeyShiftUp:
+			ctx.moveHistoryCursor(1)
+			return ctx, nil
+		}
+
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelDown:
+			ctx.moveHistoryCursor(-1)
+			return ctx, nil
+		case tea.MouseButtonWheelUp:
 			ctx.moveHistoryCursor(1)
 			return ctx, nil
 		}
@@ -261,7 +272,7 @@ func (ctx *clientContext) View() string {
 }
 
 func RunClient(app *common.AppContext) {
-	prog := tea.NewProgram(newClientContext(app))
+	prog := tea.NewProgram(newClientContext(app), tea.WithMouseCellMotion())
 
 	if _, err := prog.Run(); err != nil {
 		panic(err)
