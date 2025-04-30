@@ -1,10 +1,11 @@
 package main
 
 import (
-	"filemannet/client"
-	"filemannet/common"
-	"filemannet/server"
 	"flag"
+
+	"fileman-net/internal/client"
+	"fileman-net/internal/common"
+	"fileman-net/internal/server"
 )
 
 func main() {

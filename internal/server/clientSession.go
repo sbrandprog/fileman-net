@@ -3,12 +3,13 @@ package server
 import (
 	"encoding/json"
 	"errors"
-	"filemannet/common"
 	"fmt"
 	"io/fs"
 	"log"
 	"net"
 	"strings"
+
+	"fileman-net/internal/common"
 
 	"github.com/google/shlex"
 	"github.com/google/uuid"

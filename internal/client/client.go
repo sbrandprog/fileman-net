@@ -3,11 +3,12 @@ package client
 import (
 	"encoding/json"
 	"errors"
-	"filemannet/common"
 	"fmt"
 	"io"
 	"log"
 	"net"
+
+	"fileman-net/internal/common"
 
 	"github.com/google/shlex"
 	"github.com/google/uuid"

@@ -1,4 +1,4 @@
-module filemannet
+module fileman-net
 
 go 1.24.2
 

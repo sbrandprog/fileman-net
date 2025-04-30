@@ -3,12 +3,13 @@ package server
 import (
 	"bufio"
 	"errors"
-	"filemannet/common"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
+
+	"fileman-net/internal/common"
 
 	"github.com/google/uuid"
 )
