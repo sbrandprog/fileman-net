@@ -55,7 +55,7 @@ func (ctx *serverContext) newSession(conn net.Conn) *clientSession {
 }
 
 func (ctx *serverContext) endSession(client *clientSession) {
-	log.Printf("Closed connection with: %v", client.id)
+	log.Printf("%v: closed connection", client.id)
 
 	delete(ctx.sesss, client.id)
 
@@ -94,7 +94,7 @@ func (ctx *serverContext) serveClient(client *clientSession) {
 
 		line := string(msg[:len(msg)-1])
 
-		log.Printf("Received command: %q from %v", line, client.id)
+		log.Printf("%v: received command %q", client.id, line)
 
 		go client.processClientCommand(line)
 	}

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -38,29 +39,47 @@ func (client *clientSession) sendClientInvite() error {
 }
 
 func (client *clientSession) processClientCommand(line string) {
-	args, err := shlex.Split(line)
-
-	if err != nil {
-		log.Printf("Failed to parse client command, parse err: %v", err)
-	}
-
-	if !common.IsDefinedCommand(args[0]) {
-		log.Printf("Issued a not defined command: %v\n", args[0])
-	}
-
 	var msgBuilder strings.Builder
 
-	switch args[0] {
-	case "ls":
-		{
-			msgBuilder.WriteString(client.processFileCommandLs())
+	args, err := shlex.Split(line)
+
+	if err == nil {
+		switch args[0] {
+		case "ls":
+			{
+				switch len(args) {
+				case 1:
+					msgBuilder.WriteString(client.processFileCommandLs())
+				default:
+					msgBuilder.WriteString("Invalid usage of 'ls' command")
+				}
+			}
+		case "pwd":
+			{
+				switch len(args) {
+				case 1:
+					msgBuilder.WriteString(client.processFileCommandPwd())
+				default:
+					msgBuilder.WriteString("Invalid usage of 'pwd' command")
+				}
+			}
+		case "cd":
+			{
+				switch len(args) {
+				case 2:
+					msgBuilder.WriteString(client.processFileCommandCd(args[1]))
+				default:
+					msgBuilder.WriteString("Invalid usage of 'cd' command")
+				}
+			}
+		default:
+			str := fmt.Sprintf("Requested a not defined command: %v\n", args)
+			log.Print(str)
+			msgBuilder.WriteString(str)
 		}
-	case "pwd":
-		{
-			msgBuilder.WriteString(client.processFileCommandPwd())
-		}
-	default:
-		panic(fmt.Sprintf("unexpected command: %v", args))
+	} else {
+		log.Printf("Failed to parse client command. Err: %v", err)
+		msgBuilder.WriteString("Failed to parse command on server side")
 	}
 
 	err = common.SendMessage(client.conn, []byte(msgBuilder.String()))
@@ -68,6 +87,32 @@ func (client *clientSession) processClientCommand(line string) {
 	if err != nil {
 		log.Printf("SendMessage error: %v", err)
 	}
+}
+
+func formatFileInfo(info fs.FileInfo) string {
+	var sizeStr string
+
+	fmtr := func(v float32, suff string) string {
+		if v >= 10 {
+			return fmt.Sprintf("%v%v", int(v), suff)
+		} else {
+			return fmt.Sprintf("%1.1f%v", v, suff)
+		}
+	}
+
+	if info.Size() >= 1000*1000*1000*1000 {
+		sizeStr = "2BIG"
+	} else if info.Size() >= 1000*1000*1000 {
+		sizeStr = fmtr(float32(info.Size())/1024/1024/1024, "G")
+	} else if info.Size() >= 1000*1000 {
+		sizeStr = fmtr(float32(info.Size())/1024/1024, "M")
+	} else if info.Size() >= 1000 {
+		sizeStr = fmtr(float32(info.Size())/1024, "K")
+	} else {
+		sizeStr = fmt.Sprintf("%v", info.Size())
+	}
+
+	return fmt.Sprintf("%-12v %4v %v %-10v", info.Mode(), sizeStr, info.ModTime().Format("Jan 02 15:04:05"), info.Name())
 }
 
 func (client *clientSession) processFileCommandLs() string {
@@ -78,26 +123,42 @@ func (client *clientSession) processFileCommandLs() string {
 		return fmt.Sprintf("Failed to read directory elements")
 	}
 
-	var msgBuiler strings.Builder
+	var msgBuilder strings.Builder
 
 	for entInd, ent := range ents {
 		info, err := ent.Info()
 
 		if err != nil {
 			log.Printf("Failed to read data. Err: %v", err)
-			msgBuiler.WriteString("Failed to read data.\n")
+			msgBuilder.WriteString("Failed to read data.\n")
 		} else {
-			msgBuiler.WriteString(fmt.Sprintf("%-14v %-10v", info.Mode(), info.Name()))
+			msgBuilder.WriteString(formatFileInfo(info))
 
 			if entInd != len(ents)-1 {
-				msgBuiler.WriteRune('\n')
+				msgBuilder.WriteRune('\n')
 			}
 		}
 	}
 
-	return msgBuiler.String()
+	return msgBuilder.String()
 }
 
 func (client *clientSession) processFileCommandPwd() string {
 	return client.cwd
+}
+
+func (client *clientSession) processFileCommandCd(newDir string) string {
+	newCwd := filepath.Join(client.cwd, newDir)
+
+	if info, err := client.ctx.workingDir.Stat(filepath.Join(".", newCwd)); !os.IsNotExist(err) {
+		if info.IsDir() {
+			client.cwd = newCwd
+		} else {
+			return fmt.Sprintf("%q is not a directory path", newDir)
+		}
+	} else {
+		return fmt.Sprintf("%q is not valid path to change", newDir)
+	}
+
+	return ""
 }

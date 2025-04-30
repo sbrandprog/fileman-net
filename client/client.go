@@ -55,7 +55,9 @@ func (ctx *clientContext) pushHistory(str string) {
 	defer ctx.historyLock.Unlock()
 
 	for elem := range strings.SplitSeq(str, "\n") {
-		ctx.history = append(ctx.history, elem)[max(0, len(ctx.history)-clientHistoryLen):]
+		if len(elem) > 0 {
+			ctx.history = append(ctx.history, elem)[max(0, len(ctx.history)-clientHistoryLen):]
+		}
 	}
 }
 
@@ -104,17 +106,17 @@ func (ctx *clientContext) initConnection() tea.Msg {
 	return connCreated{}
 }
 
-func (ctx *clientContext) processClientCommand(args []string) tea.Cmd {
+func (ctx *clientContext) processClientCommand(args []string) (bool, tea.Cmd) {
 	switch args[0] {
 	case "exit":
-		return tea.Quit
+		return true, tea.Quit
 
 	case "id":
 		ctx.pushHistory(ctx.id.String())
-		return nil
+		return true, nil
 
 	default:
-		panic(fmt.Sprintf("unexpected command: %v", args))
+		return false, nil
 	}
 }
 
@@ -135,13 +137,8 @@ func (ctx *clientContext) processInputLine() tea.Cmd {
 		return nil
 	}
 
-	if common.IsDefinedClientCommand(args[0]) {
-		return ctx.processClientCommand(args)
-	}
-
-	if !common.IsDefinedCommand(args[0]) {
-		ctx.pushHistoryFormat("Unknown command.")
-		return nil
+	if processed, cmd := ctx.processClientCommand(args); processed {
+		return cmd
 	}
 
 	err = common.SendMessage(ctx.conn, []byte(line))
