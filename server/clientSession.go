@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net"
+	"path/filepath"
 	"strings"
 
 	"github.com/google/shlex"
@@ -68,7 +69,7 @@ func (client *clientSession) processClientCommand(line string) {
 }
 
 func (client *clientSession) processFileCommandLs() string {
-	ents, err := fs.ReadDir(client.ctx.workingDir.FS(), client.cwd)
+	ents, err := fs.ReadDir(client.ctx.workingDir.FS(), filepath.Join(".", client.cwd))
 
 	if err != nil {
 		return fmt.Sprintf("Failed to read directory elements")

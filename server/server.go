@@ -47,7 +47,7 @@ func (ctx *serverContext) startServer() {
 }
 
 func (ctx *serverContext) newSession(conn net.Conn) *clientSession {
-	client := &clientSession{ctx: ctx, id: uuid.New(), conn: conn, cwd: "."}
+	client := &clientSession{ctx: ctx, id: uuid.New(), conn: conn, cwd: "/"}
 
 	ctx.sesss[client.id] = client
 
